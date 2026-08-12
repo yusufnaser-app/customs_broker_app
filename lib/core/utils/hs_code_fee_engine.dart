@@ -322,6 +322,10 @@ class HsCodeFeeEngine {
     }
   }
 
+  /// جلب قواعد HS Code المحفوظة (لشاشة الإدارة)
+Future<List<Map<String, dynamic>>> getHsCodeRules() async {
+  return await _database.query('hs_code_fee_rules', where: 'is_active = 1', orderBy: 'hs_code ASC');
+}
   /// جلب قواعد HS Code
   Future<List<HsCodeFeeRule>> getHsCodeFeeRules(String hsCode) async {
     final rules = await _database.query(
