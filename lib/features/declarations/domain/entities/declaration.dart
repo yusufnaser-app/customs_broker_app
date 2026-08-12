@@ -6,6 +6,14 @@ class Declaration {
   final String? statementType;
   final String? customsCenter;
   final String? customsCenterId;
+  final String? customsCenterName;
+  final String? representativeId;
+  final String? representativeName;
+  final String? officeName;
+  final String? vesselName;
+  final int? totalPackages;
+  final double? totalGrossWeight;
+  final double? totalNetWeight;
   final String clientId;
   final String? traderId;
   final String? supplierId;
@@ -35,6 +43,14 @@ class Declaration {
     this.statementType,
     this.customsCenter,
     this.customsCenterId,
+    this.customsCenterName,
+    this.representativeId,
+    this.representativeName,
+    this.officeName,
+    this.vesselName,
+    this.totalPackages,
+    this.totalGrossWeight,
+    this.totalNetWeight,
     required this.clientId,
     this.traderId,
     this.supplierId,
@@ -66,6 +82,14 @@ class Declaration {
       'statement_type': statementType,
       'customs_center': customsCenter,
       'customs_center_id': customsCenterId,
+      'customs_center_name': customsCenterName,
+      'representative_id': representativeId,
+      'representative_name': representativeName,
+      'office_name': officeName,
+      'vessel_name': vesselName,
+      'total_packages': totalPackages,
+      'total_gross_weight': totalGrossWeight,
+      'total_net_weight': totalNetWeight,
       'client_id': clientId,
       'trader_id': traderId,
       'supplier_id': supplierId,
@@ -95,6 +119,14 @@ class Declaration {
       statementType: map['statement_type'],
       customsCenter: map['customs_center'],
       customsCenterId: map['customs_center_id'],
+      customsCenterName: map['customs_center_name'],
+      representativeId: map['representative_id'],
+      representativeName: map['representative_name'],
+      officeName: map['office_name'],
+      vesselName: map['vessel_name'],
+      totalPackages: map['total_packages'] as int?,
+      totalGrossWeight: (map['total_gross_weight'] as num?)?.toDouble(),
+      totalNetWeight: (map['total_net_weight'] as num?)?.toDouble(),
       clientId: map['client_id'] ?? '',
       traderId: map['trader_id'],
       supplierId: map['supplier_id'],
@@ -126,6 +158,14 @@ class Declaration {
     String? statementType,
     String? customsCenter,
     String? customsCenterId,
+    String? customsCenterName,
+    String? representativeId,
+    String? representativeName,
+    String? officeName,
+    String? vesselName,
+    int? totalPackages,
+    double? totalGrossWeight,
+    double? totalNetWeight,
     String? clientId,
     String? traderId,
     String? supplierId,
@@ -155,6 +195,14 @@ class Declaration {
       statementType: statementType ?? this.statementType,
       customsCenter: customsCenter ?? this.customsCenter,
       customsCenterId: customsCenterId ?? this.customsCenterId,
+      customsCenterName: customsCenterName ?? this.customsCenterName,
+      representativeId: representativeId ?? this.representativeId,
+      representativeName: representativeName ?? this.representativeName,
+      officeName: officeName ?? this.officeName,
+      vesselName: vesselName ?? this.vesselName,
+      totalPackages: totalPackages ?? this.totalPackages,
+      totalGrossWeight: totalGrossWeight ?? this.totalGrossWeight,
+      totalNetWeight: totalNetWeight ?? this.totalNetWeight,
       clientId: clientId ?? this.clientId,
       traderId: traderId ?? this.traderId,
       supplierId: supplierId ?? this.supplierId,
