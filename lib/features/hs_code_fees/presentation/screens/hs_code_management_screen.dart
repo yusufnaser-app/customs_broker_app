@@ -54,27 +54,6 @@ class _HsCodeManagementScreenState extends State<HsCodeManagementScreen>
       text: category?['description'] as String? ?? '',
     );
 
-    // رسوم نسبية مؤقتة للتصنيف
-    List<Map<String, dynamic>> relativeFees = [];
-    List<Map<String, dynamic>> fixedFees = [];
-    
-    if (category != null) {
-      try {
-        final relativeJson = category['default_relative_fees_json'] as String? ?? '[]';
-        final fixedJson = category['default_fixed_fees_json'] as String? ?? '[]';
-        relativeFees = List<Map<String, dynamic>>.from(
-          List<dynamic>.from(
-            relativeJson.isNotEmpty ? _parseJson(relativeJson) : [],
-          ),
-        );
-        fixedFees = List<Map<String, dynamic>>.from(
-          List<dynamic>.from(
-            fixedJson.isNotEmpty ? _parseJson(fixedJson) : [],
-          ),
-        );
-      } catch (_) {}
-    }
-
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -89,7 +68,6 @@ class _HsCodeManagementScreenState extends State<HsCodeManagementScreen>
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // كود التصنيف
                   TextField(
                     controller: codeController,
                     decoration: InputDecoration(
@@ -100,8 +78,6 @@ class _HsCodeManagementScreenState extends State<HsCodeManagementScreen>
                     ),
                   ),
                   const SizedBox(height: 12),
-
-                  // اسم التصنيف
                   TextField(
                     controller: nameController,
                     decoration: const InputDecoration(
@@ -110,8 +86,6 @@ class _HsCodeManagementScreenState extends State<HsCodeManagementScreen>
                     ),
                   ),
                   const SizedBox(height: 12),
-
-                  // الوصف
                   TextField(
                     controller: descController,
                     decoration: const InputDecoration(
@@ -120,10 +94,7 @@ class _HsCodeManagementScreenState extends State<HsCodeManagementScreen>
                     ),
                     maxLines: 2,
                   ),
-
                   const SizedBox(height: 20),
-                  
-                  // ملاحظة
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
@@ -149,7 +120,6 @@ class _HsCodeManagementScreenState extends State<HsCodeManagementScreen>
               ),
             ),
             actions: [
-              // حذف (للتعديل فقط)
               if (category != null)
                 TextButton(
                   onPressed: () => Navigator.pop(context, {'action': 'delete'}),
@@ -161,8 +131,7 @@ class _HsCodeManagementScreenState extends State<HsCodeManagementScreen>
               ),
               ElevatedButton(
                 onPressed: () {
-                  if (codeController.text.trim().isEmpty ||
-                      nameController.text.trim().isEmpty) {
+                  if (codeController.text.trim().isEmpty || nameController.text.trim().isEmpty) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('الكود والاسم مطلوبان')),
                     );
@@ -190,10 +159,9 @@ class _HsCodeManagementScreenState extends State<HsCodeManagementScreen>
       return;
     }
 
-    // حفظ التصنيف
     final db = await _dbHelper.database;
     final now = DateTime.now().toIso8601String();
-    
+
     final data = {
       'category_code': result['category_code'] as String,
       'category_name': result['category_name'] as String,
@@ -203,12 +171,8 @@ class _HsCodeManagementScreenState extends State<HsCodeManagementScreen>
     };
 
     if (result['action'] == 'edit' && category != null) {
-      await db.update(
-        'hs_code_categories',
-        data,
-        where: 'category_code = ?',
-        whereArgs: [category['category_code']],
-      );
+      await db.update('hs_code_categories', data,
+          where: 'category_code = ?', whereArgs: [category['category_code']]);
     } else {
       await db.insert('hs_code_categories', {
         ...data,
@@ -217,7 +181,7 @@ class _HsCodeManagementScreenState extends State<HsCodeManagementScreen>
         'default_fixed_fees_json': '[]',
       });
     }
-    
+
     _loadData();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -263,23 +227,16 @@ class _HsCodeManagementScreenState extends State<HsCodeManagementScreen>
                     ),
                   ),
                   const SizedBox(height: 12),
-
-                  // اختيار التصنيف
                   DropdownButtonFormField<String>(
                     value: categoryController.text.isEmpty ? null : categoryController.text,
                     decoration: const InputDecoration(labelText: 'التصنيف (اختياري)'),
                     items: [
-                      const DropdownMenuItem<String>(
-                        value: null,
-                        child: Text('بدون تصنيف'),
-                      ),
+                      const DropdownMenuItem<String>(value: null, child: Text('بدون تصنيف')),
                       ..._categories.map((c) => DropdownMenuItem<String>(
-                        value: c['category_code'] as String,
-                        child: Text(
-                          '${c['category_code']} - ${c['category_name']}',
-                          style: GoogleFonts.cairo(fontSize: 13),
-                        ),
-                      )),
+                            value: c['category_code'] as String,
+                            child: Text('${c['category_code']} - ${c['category_name']}',
+                                style: GoogleFonts.cairo(fontSize: 13)),
+                          )),
                     ],
                     onChanged: (v) {
                       categoryController.text = v ?? '';
@@ -287,7 +244,6 @@ class _HsCodeManagementScreenState extends State<HsCodeManagementScreen>
                     },
                   ),
                   const SizedBox(height: 12),
-
                   TextField(
                     controller: typeController,
                     decoration: const InputDecoration(
@@ -295,9 +251,7 @@ class _HsCodeManagementScreenState extends State<HsCodeManagementScreen>
                       hintText: 'مثال: أجهزة إلكترونية، مواد غذائية',
                     ),
                   ),
-
                   const SizedBox(height: 20),
-                  
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
@@ -328,10 +282,7 @@ class _HsCodeManagementScreenState extends State<HsCodeManagementScreen>
                   onPressed: () => Navigator.pop(context, {'action': 'delete'}),
                   child: const Text('حذف', style: TextStyle(color: AppColors.error)),
                 ),
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('إلغاء'),
-              ),
+              TextButton(onPressed: () => Navigator.pop(context), child: const Text('إلغاء')),
               ElevatedButton(
                 onPressed: () {
                   if (hsCodeController.text.trim().isEmpty) {
@@ -362,34 +313,26 @@ class _HsCodeManagementScreenState extends State<HsCodeManagementScreen>
       return;
     }
 
-    // حفظ القاعدة
+    // حفظ القاعدة باستخدام الدوال الجديدة
     final db = await _dbHelper.database;
-    final now = DateTime.now().toIso8601String();
     final relativeFees = await db.query('relative_fees', where: 'is_active = 1');
     final fixedFees = await db.query('fixed_fees', where: 'is_active = 1');
 
-    await _engine.saveHsCodeRule(
+    await _engine.saveHsCodeFeeRules(
       hsCode: result['hs_code'] as String,
-      hsCodeCategory: result['hs_code_category'] as String,
-      itemType: result['item_type'] as String,
-      relativeFees: relativeFees.map((f) => FeeItem(
-        code: f['code'] as String,
-        name: f['name'] as String,
-        type: 'relative',
-        rate: (f['rate'] as num).toDouble(),
-        amount: 0,
-        calculationBase: f['calculation_base'] as String? ?? 'invoice_value',
-      )).toList(),
-      fixedFees: fixedFees.map((f) => FeeItem(
-        code: f['code'] as String,
-        name: f['name'] as String,
-        type: 'fixed',
-        rate: 0,
-        amount: (f['amount'] as num).toDouble(),
-        calculationBase: 'fixed',
-      )).toList(),
+      percentageRules: relativeFees.map((f) => {
+        'code': f['code'] as String,
+        'name': f['name'] as String,
+        'rate': (f['rate'] as num).toDouble(),
+        'basis': f['calculation_base'] as String? ?? 'invoice_value',
+      }).toList(),
+      fixedRules: fixedFees.map((f) => {
+        'code': f['code'] as String,
+        'name': f['name'] as String,
+        'amount': (f['amount'] as num).toDouble(),
+      }).toList(),
     );
-    
+
     _loadData();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -420,12 +363,8 @@ class _HsCodeManagementScreenState extends State<HsCodeManagementScreen>
 
     if (confirm == true) {
       final db = await _dbHelper.database;
-      await db.update(
-        'hs_code_categories',
-        {'is_active': 0},
-        where: 'category_code = ?',
-        whereArgs: [categoryCode],
-      );
+      await db.update('hs_code_categories', {'is_active': 0},
+          where: 'category_code = ?', whereArgs: [categoryCode]);
       _loadData();
     }
   }
@@ -449,21 +388,9 @@ class _HsCodeManagementScreenState extends State<HsCodeManagementScreen>
 
     if (confirm == true) {
       final db = await _dbHelper.database;
-      await db.update(
-        'hs_code_fee_rules',
-        {'is_active': 0},
-        where: 'hs_code = ?',
-        whereArgs: [hsCode],
-      );
+      await db.update('hs_code_fee_rules', {'is_active': 0},
+          where: 'hs_code = ?', whereArgs: [hsCode]);
       _loadData();
-    }
-  }
-
-  List<dynamic> _parseJson(String json) {
-    try {
-      return List<dynamic>.from(json as List);
-    } catch (_) {
-      return [];
     }
   }
 
@@ -510,7 +437,6 @@ class _HsCodeManagementScreenState extends State<HsCodeManagementScreen>
     );
   }
 
-  // ============ تبويب التصنيفات ============
   Widget _buildCategoriesTab() {
     if (_categories.isEmpty) {
       return _buildEmptyState(
@@ -536,7 +462,6 @@ class _HsCodeManagementScreenState extends State<HsCodeManagementScreen>
               padding: const EdgeInsets.all(16),
               child: Row(
                 children: [
-                  // كود التصنيف
                   Container(
                     width: 60,
                     height: 60,
@@ -547,46 +472,27 @@ class _HsCodeManagementScreenState extends State<HsCodeManagementScreen>
                     child: Center(
                       child: Text(
                         cat['category_code'] as String? ?? '',
-                        style: GoogleFonts.cairo(
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.primary,
-                        ),
+                        style: GoogleFonts.cairo(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.primary),
                       ),
                     ),
                   ),
                   const SizedBox(width: 14),
-                  
-                  // المعلومات
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          cat['category_name'] as String? ?? '',
-                          style: GoogleFonts.cairo(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
+                        Text(cat['category_name'] as String? ?? '',
+                            style: GoogleFonts.cairo(fontSize: 16, fontWeight: FontWeight.w600)),
                         if (cat['description'] != null && (cat['description'] as String).isNotEmpty)
                           Padding(
                             padding: const EdgeInsets.only(top: 4),
-                            child: Text(
-                              cat['description'] as String,
-                              style: GoogleFonts.cairo(
-                                fontSize: 13,
-                                color: AppColors.textSecondary,
-                              ),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
+                            child: Text(cat['description'] as String,
+                                style: GoogleFonts.cairo(fontSize: 13, color: AppColors.textSecondary),
+                                maxLines: 2, overflow: TextOverflow.ellipsis),
                           ),
                       ],
                     ),
                   ),
-                  
-                  // أزرار
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -609,7 +515,6 @@ class _HsCodeManagementScreenState extends State<HsCodeManagementScreen>
     );
   }
 
-  // ============ تبويب القواعد الخاصة ============
   Widget _buildRulesTab() {
     if (_rules.isEmpty) {
       return _buildEmptyState(
@@ -635,7 +540,6 @@ class _HsCodeManagementScreenState extends State<HsCodeManagementScreen>
               padding: const EdgeInsets.all(16),
               child: Row(
                 children: [
-                  // HS Code
                   Container(
                     width: 80,
                     height: 50,
@@ -646,17 +550,11 @@ class _HsCodeManagementScreenState extends State<HsCodeManagementScreen>
                     child: Center(
                       child: Text(
                         rule['hs_code'] as String? ?? '',
-                        style: GoogleFonts.cairo(
-                          fontSize: 13,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.accentDark,
-                        ),
+                        style: GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.accentDark),
                       ),
                     ),
                   ),
                   const SizedBox(width: 14),
-                  
-                  // المعلومات
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -669,21 +567,15 @@ class _HsCodeManagementScreenState extends State<HsCodeManagementScreen>
                               color: AppColors.info.withOpacity(0.1),
                               borderRadius: BorderRadius.circular(6),
                             ),
-                            child: Text(
-                              'تصنيف: ${rule['hs_code_category']}',
-                              style: GoogleFonts.cairo(fontSize: 11, color: AppColors.info),
-                            ),
+                            child: Text('تصنيف: ${rule['hs_code_category']}',
+                                style: GoogleFonts.cairo(fontSize: 11, color: AppColors.info)),
                           ),
                         if (rule['item_type'] != null && (rule['item_type'] as String).isNotEmpty)
-                          Text(
-                            'النوع: ${rule['item_type']}',
-                            style: GoogleFonts.cairo(fontSize: 13, color: AppColors.textSecondary),
-                          ),
+                          Text('النوع: ${rule['item_type']}',
+                              style: GoogleFonts.cairo(fontSize: 13, color: AppColors.textSecondary)),
                       ],
                     ),
                   ),
-                  
-                  // أزرار
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -717,23 +609,9 @@ class _HsCodeManagementScreenState extends State<HsCodeManagementScreen>
         children: [
           Icon(icon, size: 100, color: Colors.grey.shade300),
           const SizedBox(height: 20),
-          Text(
-            title,
-            style: GoogleFonts.cairo(
-              fontSize: 20,
-              fontWeight: FontWeight.w600,
-              color: AppColors.textSecondary,
-            ),
-          ),
+          Text(title, style: GoogleFonts.cairo(fontSize: 20, fontWeight: FontWeight.w600, color: AppColors.textSecondary)),
           const SizedBox(height: 10),
-          Text(
-            subtitle,
-            style: GoogleFonts.cairo(
-              fontSize: 14,
-              color: AppColors.textHint,
-            ),
-            textAlign: TextAlign.center,
-          ),
+          Text(subtitle, style: GoogleFonts.cairo(fontSize: 14, color: AppColors.textHint), textAlign: TextAlign.center),
           const SizedBox(height: 30),
           ElevatedButton.icon(
             onPressed: () {
@@ -744,10 +622,7 @@ class _HsCodeManagementScreenState extends State<HsCodeManagementScreen>
               }
             },
             icon: const Icon(Icons.add),
-            label: Text(
-              _tabController.index == 0 ? 'إضافة تصنيف' : 'إضافة قاعدة',
-              style: GoogleFonts.cairo(),
-            ),
+            label: Text(_tabController.index == 0 ? 'إضافة تصنيف' : 'إضافة قاعدة', style: GoogleFonts.cairo()),
           ),
         ],
       ),
