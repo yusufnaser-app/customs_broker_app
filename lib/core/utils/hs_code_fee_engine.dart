@@ -1,406 +1,446 @@
 import 'package:sqflite/sqflite.dart';
 import 'dart:convert';
 
-class FeeBreakdown {
-  final double exchangeRate;
-  final double invoiceValueUsd;
-  final double invoiceValueYer;
-  final List<FeeItem> relativeFees;
-  final List<FeeItem> fixedFees;
-  final double totalRelativeFees;
-  final double totalFixedFees;
-  final double grandTotal;
-  final String? appliedHsCode;
-  final String? hsCodeCategory;
-
-  const FeeBreakdown({
-    required this.exchangeRate,
-    required this.invoiceValueUsd,
-    required this.invoiceValueYer,
-    required this.relativeFees,
-    required this.fixedFees,
-    required this.totalRelativeFees,
-    required this.totalFixedFees,
-    required this.grandTotal,
-    this.appliedHsCode,
-    this.hsCodeCategory,
-  });
-
-  Map<String, dynamic> toJson() => {
-    'exchangeRate': exchangeRate,
-    'invoiceValueUsd': invoiceValueUsd,
-    'invoiceValueYer': invoiceValueYer,
-    'relativeFees': relativeFees.map((f) => f.toJson()).toList(),
-    'fixedFees': fixedFees.map((f) => f.toJson()).toList(),
-    'totalRelativeFees': totalRelativeFees,
-    'totalFixedFees': totalFixedFees,
-    'grandTotal': grandTotal,
-    'appliedHsCode': appliedHsCode,
-    'hsCodeCategory': hsCodeCategory,
-  };
-
-  factory FeeBreakdown.fromJson(Map<String, dynamic> json) => FeeBreakdown(
-    exchangeRate: json['exchangeRate'] ?? 0,
-    invoiceValueUsd: json['invoiceValueUsd'] ?? 0,
-    invoiceValueYer: json['invoiceValueYer'] ?? 0,
-    relativeFees: (json['relativeFees'] as List?)?.map((f) => FeeItem.fromJson(f)).toList() ?? [],
-    fixedFees: (json['fixedFees'] as List?)?.map((f) => FeeItem.fromJson(f)).toList() ?? [],
-    totalRelativeFees: json['totalRelativeFees'] ?? 0,
-    totalFixedFees: json['totalFixedFees'] ?? 0,
-    grandTotal: json['grandTotal'] ?? 0,
-    appliedHsCode: json['appliedHsCode'],
-    hsCodeCategory: json['hsCodeCategory'],
-  );
-}
-
-class FeeItem {
-  final String code;
-  final String name;
-  final String type; // 'relative' or 'fixed'
+// ============ نماذج البيانات ============
+class HsCodeFeeRule {
+  final String id;
+  final String hsCodeId;
+  final String hsCode;
+  final String feeCode;
+  final String feeName;
+  final String feeType; // 'percentage' or 'fixed'
   final double rate;
-  final double amount;
-  final String calculationBase;
-  final String? hsCodeFilter;
+  final double fixedAmount;
+  final String calculationBasis;
+  final int calculationOrder;
+  final bool isActive;
 
-  const FeeItem({
-    required this.code,
-    required this.name,
-    required this.type,
+  const HsCodeFeeRule({
+    required this.id,
+    required this.hsCodeId,
+    required this.hsCode,
+    required this.feeCode,
+    required this.feeName,
+    required this.feeType,
     required this.rate,
-    required this.amount,
-    required this.calculationBase,
-    this.hsCodeFilter,
+    required this.fixedAmount,
+    required this.calculationBasis,
+    required this.calculationOrder,
+    required this.isActive,
+  });
+
+  factory HsCodeFeeRule.fromMap(Map<String, dynamic> map) {
+    return HsCodeFeeRule(
+      id: map['id'] as String,
+      hsCodeId: map['hs_code_id'] as String,
+      hsCode: map['hs_code'] as String,
+      feeCode: map['fee_code'] as String,
+      feeName: map['fee_name'] as String,
+      feeType: map['fee_type'] as String,
+      rate: (map['rate'] as num?)?.toDouble() ?? 0,
+      fixedAmount: (map['fixed_amount'] as num?)?.toDouble() ?? 0,
+      calculationBasis: map['calculation_basis'] as String? ?? 'invoice_value',
+      calculationOrder: map['calculation_order'] as int? ?? 99,
+      isActive: (map['is_active'] as int?) == 1,
+    );
+  }
+}
+
+class CalculatedFee {
+  final String feeCode;
+  final String feeName;
+  final String feeType;
+  final double rate;
+  final double fixedAmount;
+  final double calculatedAmount;
+  final String calculationBasis;
+  final int calculationOrder;
+
+  const CalculatedFee({
+    required this.feeCode,
+    required this.feeName,
+    required this.feeType,
+    required this.rate,
+    required this.fixedAmount,
+    required this.calculatedAmount,
+    required this.calculationBasis,
+    required this.calculationOrder,
   });
 
   Map<String, dynamic> toJson() => {
-    'code': code,
-    'name': name,
-    'type': type,
+    'code': feeCode,
+    'name': feeName,
+    'type': feeType,
     'rate': rate,
-    'amount': amount,
-    'calculationBase': calculationBase,
-    'hsCodeFilter': hsCodeFilter,
+    'fixedAmount': fixedAmount,
+    'amount': calculatedAmount,
+    'calculationBase': calculationBasis,
+    'order': calculationOrder,
   };
-
-  factory FeeItem.fromJson(Map<String, dynamic> json) => FeeItem(
-    code: json['code'] ?? '',
-    name: json['name'] ?? '',
-    type: json['type'] ?? 'relative',
-    rate: (json['rate'] ?? 0).toDouble(),
-    amount: (json['amount'] ?? 0).toDouble(),
-    calculationBase: json['calculationBase'] ?? '',
-    hsCodeFilter: json['hsCodeFilter'],
-  );
 }
 
+class ItemFeeResult {
+  final String hsCode;
+  final String? hsCodeDescription;
+  final double itemValueUsd;
+  final double exchangeRate;
+  final double itemValueYer;
+  final List<CalculatedFee> percentageFees;
+  final List<CalculatedFee> fixedFees;
+  final double totalPercentageFees;
+  final double totalFixedFees;
+  final double totalFees;
+
+  const ItemFeeResult({
+    required this.hsCode,
+    this.hsCodeDescription,
+    required this.itemValueUsd,
+    required this.exchangeRate,
+    required this.itemValueYer,
+    required this.percentageFees,
+    required this.fixedFees,
+    required this.totalPercentageFees,
+    required this.totalFixedFees,
+    required this.totalFees,
+  });
+}
+
+class DeclarationFeeResult {
+  final double exchangeRate;
+  final double totalInvoiceUsd;
+  final double totalInvoiceYer;
+  final List<ItemFeeResult> itemResults;
+  final List<CalculatedFee> mergedPercentageFees;
+  final List<CalculatedFee> mergedFixedFees;
+  final double grandTotalPercentage;
+  final double grandTotalFixed;
+  final double grandTotal;
+
+  const DeclarationFeeResult({
+    required this.exchangeRate,
+    required this.totalInvoiceUsd,
+    required this.totalInvoiceYer,
+    required this.itemResults,
+    required this.mergedPercentageFees,
+    required this.mergedFixedFees,
+    required this.grandTotalPercentage,
+    required this.grandTotalFixed,
+    required this.grandTotal,
+  });
+}
+
+// ============ محرك الرسوم ============
 class HsCodeFeeEngine {
   final Database _database;
 
   HsCodeFeeEngine(this._database);
 
-  /// احتساب الرسوم لصنف محدد بناءً على HS Code
-  Future<FeeBreakdown> calculateFeesForItem({
+  /// حساب رسوم صنف واحد
+  Future<ItemFeeResult> calculateItemFees({
     required String hsCode,
     required double itemValueUsd,
     required double exchangeRate,
-    String? itemType,
   }) async {
     final itemValueYer = itemValueUsd * exchangeRate;
 
-    // 1. البحث عن قواعد خاصة بهذا HS Code
-    List<FeeItem> relativeFees = [];
-    List<FeeItem> fixedFees = [];
-    String? categoryName;
-
-    final specificRules = await _database.query(
+    // جلب قواعد الرسوم الخاصة بهذا HS Code
+    final rules = await _database.query(
       'hs_code_fee_rules',
       where: 'hs_code = ? AND is_active = 1',
       whereArgs: [hsCode],
-      limit: 1,
+      orderBy: 'calculation_order ASC',
     );
 
-    if (specificRules.isNotEmpty) {
-      // استخدام القواعد الخاصة بهذا HS Code
-      final rule = specificRules.first;
-      relativeFees = _parseRelativeFees(rule['relative_fees_json'] as String? ?? '[]');
-      fixedFees = _parseFixedFees(rule['fixed_fees_json'] as String? ?? '[]');
-      categoryName = rule['hs_code_category'] as String?;
-    } else {
-      // 2. البحث عن القسم (أول 4 أرقام من HS Code)
-      final hsCodePrefix = hsCode.length >= 4 ? hsCode.substring(0, 4) : hsCode;
-      
-      final categoryRules = await _database.query(
-        'hs_code_categories',
-        where: 'category_code = ? AND is_active = 1',
-        whereArgs: [hsCodePrefix],
-        limit: 1,
-      );
-
-      if (categoryRules.isNotEmpty) {
-        final cat = categoryRules.first;
-        relativeFees = _parseRelativeFees(cat['default_relative_fees_json'] as String? ?? '[]');
-        fixedFees = _parseFixedFees(cat['default_fixed_fees_json'] as String? ?? '[]');
-        categoryName = cat['category_name'] as String?;
-      } else {
-        // 3. استخدام الرسوم الافتراضية العامة
-        relativeFees = await _getDefaultRelativeFees();
-        fixedFees = await _getDefaultFixedFees();
-        categoryName = 'رسوم عامة';
-      }
+    if (rules.isEmpty) {
+      // إذا لم توجد قواعد خاصة، استخدم القواعد العامة
+      return _calculateWithDefaultRules(hsCode, itemValueUsd, exchangeRate, itemValueYer);
     }
 
-    // حساب الرسوم النسبية
-    double currentBase = itemValueYer;
-    double totalRelative = 0;
-    final List<FeeItem> calculatedRelative = [];
+    // تحويل القواعد إلى كائنات
+    final feeRules = rules.map((r) => HsCodeFeeRule.fromMap(r)).toList();
 
-    for (final fee in relativeFees) {
+    // فصل الرسوم النسبية عن الثابتة
+    final percentageRules = feeRules.where((r) => r.feeType == 'percentage').toList()
+      ..sort((a, b) => a.calculationOrder.compareTo(b.calculationOrder));
+    final fixedRules = feeRules.where((r) => r.feeType == 'fixed').toList();
+
+    // حساب الرسوم النسبية (تراكمي)
+    final List<CalculatedFee> percentageFees = [];
+    double currentBase = itemValueYer;
+    double totalPercentage = 0;
+
+    for (final rule in percentageRules) {
       double baseAmount;
-      if (fee.calculationBase == 'after_duty' || fee.calculationBase == 'after_st') {
-        baseAmount = currentBase;
-      } else {
-        baseAmount = itemValueYer;
+      switch (rule.calculationBasis) {
+        case 'after_duty':
+        case 'after_st':
+          baseAmount = currentBase;
+          break;
+        default:
+          baseAmount = itemValueYer;
       }
 
-      final feeAmount = baseAmount * (fee.rate / 100);
+      final amount = baseAmount * (rule.rate / 100);
 
-      calculatedRelative.add(FeeItem(
-        code: fee.code,
-        name: fee.name,
-        type: 'relative',
-        rate: fee.rate,
-        amount: feeAmount,
-        calculationBase: fee.calculationBase,
+      percentageFees.add(CalculatedFee(
+        feeCode: rule.feeCode,
+        feeName: rule.feeName,
+        feeType: 'percentage',
+        rate: rule.rate,
+        fixedAmount: 0,
+        calculatedAmount: amount,
+        calculationBasis: rule.calculationBasis,
+        calculationOrder: rule.calculationOrder,
       ));
 
-      currentBase += feeAmount;
-      totalRelative += feeAmount;
+      currentBase += amount;
+      totalPercentage += amount;
     }
 
     // حساب الرسوم الثابتة
+    final List<CalculatedFee> fixedFees = [];
     double totalFixed = 0;
-    final List<FeeItem> calculatedFixed = [];
 
-    for (final fee in fixedFees) {
-      calculatedFixed.add(FeeItem(
-        code: fee.code,
-        name: fee.name,
-        type: 'fixed',
+    for (final rule in fixedRules) {
+      fixedFees.add(CalculatedFee(
+        feeCode: rule.feeCode,
+        feeName: rule.feeName,
+        feeType: 'fixed',
         rate: 0,
-        amount: fee.amount,
-        calculationBase: 'fixed',
+        fixedAmount: rule.fixedAmount,
+        calculatedAmount: rule.fixedAmount,
+        calculationBasis: 'fixed',
+        calculationOrder: rule.calculationOrder,
       ));
-      totalFixed += fee.amount;
+      totalFixed += rule.fixedAmount;
     }
 
-    return FeeBreakdown(
+    return ItemFeeResult(
+      hsCode: hsCode,
+      itemValueUsd: itemValueUsd,
       exchangeRate: exchangeRate,
-      invoiceValueUsd: itemValueUsd,
-      invoiceValueYer: itemValueYer,
-      relativeFees: calculatedRelative,
-      fixedFees: calculatedFixed,
-      totalRelativeFees: totalRelative,
+      itemValueYer: itemValueYer,
+      percentageFees: percentageFees,
+      fixedFees: fixedFees,
+      totalPercentageFees: totalPercentage,
       totalFixedFees: totalFixed,
-      grandTotal: totalRelative + totalFixed,
-      appliedHsCode: hsCode,
-      hsCodeCategory: categoryName,
+      totalFees: totalPercentage + totalFixed,
     );
   }
 
-  /// احتساب رسوم الإقرار بالكامل (لجميع الأصناف)
-  Future<FeeBreakdown> calculateDeclarationFees({
+  /// حساب رسوم الإقرار بالكامل
+  Future<DeclarationFeeResult> calculateDeclarationFees({
     required List<Map<String, dynamic>> items,
     required double exchangeRate,
   }) async {
-    double totalRelative = 0;
-    double totalFixed = 0;
-    double totalInvoiceUsd = 0;
-    List<FeeItem> allRelative = [];
-    List<FeeItem> allFixed = [];
+    final List<ItemFeeResult> itemResults = [];
+    double totalUsd = 0;
 
     for (final item in items) {
-      final itemValue = (item['item_value'] as num?)?.toDouble() ?? 0;
       final hsCode = item['hs_code'] as String? ?? '';
-      
-      if (itemValue > 0 && hsCode.isNotEmpty) {
-        final itemFees = await calculateFeesForItem(
+      final itemValue = (item['item_value'] as num?)?.toDouble() ?? (item['value'] as num?)?.toDouble() ?? 0;
+
+      if (hsCode.isNotEmpty && itemValue > 0) {
+        totalUsd += itemValue;
+        final result = await calculateItemFees(
           hsCode: hsCode,
           itemValueUsd: itemValue,
           exchangeRate: exchangeRate,
-          itemType: item['package_type'] as String?,
         );
-
-        totalInvoiceUsd += itemValue;
-        totalRelative += itemFees.totalRelativeFees;
-        totalFixed += itemFees.totalFixedFees;
-        
-        // دمج الرسوم (تجميع المتشابهة)
-        allRelative = _mergeFees(allRelative, itemFees.relativeFees);
-        allFixed = _mergeFees(allFixed, itemFees.fixedFees);
+        itemResults.add(result);
       }
     }
 
-    return FeeBreakdown(
+    // دمج الرسوم
+    final mergedPercentage = _mergePercentageFees(itemResults);
+    final mergedFixed = _mergeFixedFees(itemResults);
+
+    final grandPercentage = mergedPercentage.fold<double>(0, (sum, f) => sum + f.calculatedAmount);
+    final grandFixed = mergedFixed.fold<double>(0, (sum, f) => sum + f.calculatedAmount);
+
+    return DeclarationFeeResult(
       exchangeRate: exchangeRate,
-      invoiceValueUsd: totalInvoiceUsd,
-      invoiceValueYer: totalInvoiceUsd * exchangeRate,
-      relativeFees: allRelative,
-      fixedFees: allFixed,
-      totalRelativeFees: totalRelative,
-      totalFixedFees: totalFixed,
-      grandTotal: totalRelative + totalFixed,
+      totalInvoiceUsd: totalUsd,
+      totalInvoiceYer: totalUsd * exchangeRate,
+      itemResults: itemResults,
+      mergedPercentageFees: mergedPercentage,
+      mergedFixedFees: mergedFixed,
+      grandTotalPercentage: grandPercentage,
+      grandTotalFixed: grandFixed,
+      grandTotal: grandPercentage + grandFixed,
     );
   }
 
-  /// حفظ قاعدة رسوم لـ HS Code (تتعلم من الإقرارات المعتمدة)
-  Future<void> saveHsCodeRule({
+  /// حفظ/تحديث قواعد رسوم HS Code
+  Future<void> saveHsCodeFeeRules({
     required String hsCode,
-    required String hsCodeCategory,
-    required String itemType,
-    required List<FeeItem> relativeFees,
-    required List<FeeItem> fixedFees,
+    String? hsCodeId,
+    required List<Map<String, dynamic>> percentageRules,
+    required List<Map<String, dynamic>> fixedRules,
   }) async {
     final now = DateTime.now().toIso8601String();
-    
-    final existing = await _database.query(
-      'hs_code_fee_rules',
-      where: 'hs_code = ?',
-      whereArgs: [hsCode],
-    );
 
-    final data = {
-      'hs_code': hsCode,
-      'hs_code_category': hsCodeCategory,
-      'item_type': itemType,
-      'relative_fees_json': jsonEncode(relativeFees.map((f) => f.toJson()).toList()),
-      'fixed_fees_json': jsonEncode(fixedFees.map((f) => f.toJson()).toList()),
-      'is_active': 1,
-      'updated_at': now,
-    };
+    // حذف القواعد القديمة
+    await _database.delete('hs_code_fee_rules', where: 'hs_code = ?', whereArgs: [hsCode]);
 
-    if (existing.isNotEmpty) {
-      await _database.update('hs_code_fee_rules', data, where: 'hs_code = ?', whereArgs: [hsCode]);
-    } else {
+    // إدخال القواعد الجديدة
+    int order = 1;
+    for (final rule in percentageRules) {
       await _database.insert('hs_code_fee_rules', {
-        ...data,
-        'id': 'hs-rule-$hsCode',
+        'id': 'hsfee-${hsCode}-${rule['code']}-${DateTime.now().millisecondsSinceEpoch}',
+        'hs_code_id': hsCodeId ?? hsCode,
+        'hs_code': hsCode,
+        'fee_code': rule['code'] as String,
+        'fee_name': rule['name'] as String,
+        'fee_type': 'percentage',
+        'rate': (rule['rate'] as num).toDouble(),
+        'fixed_amount': 0,
+        'calculation_basis': rule['basis'] as String? ?? 'invoice_value',
+        'calculation_order': order++,
+        'is_active': 1,
         'created_at': now,
+        'updated_at': now,
+      });
+    }
+
+    for (final rule in fixedRules) {
+      await _database.insert('hs_code_fee_rules', {
+        'id': 'hsfee-${hsCode}-${rule['code']}-${DateTime.now().millisecondsSinceEpoch}',
+        'hs_code_id': hsCodeId ?? hsCode,
+        'hs_code': hsCode,
+        'fee_code': rule['code'] as String,
+        'fee_name': rule['name'] as String,
+        'fee_type': 'fixed',
+        'rate': 0,
+        'fixed_amount': (rule['amount'] as num).toDouble(),
+        'calculation_basis': 'fixed',
+        'calculation_order': order++,
+        'is_active': 1,
+        'created_at': now,
+        'updated_at': now,
       });
     }
   }
 
-  /// إضافة تصنيف جديد لـ HS Code مع رسوم افتراضية
-  Future<void> saveHsCodeCategory({
-    required String categoryCode,
-    required String categoryName,
-    required String description,
-    required List<FeeItem> defaultRelativeFees,
-    required List<FeeItem> defaultFixedFees,
-  }) async {
-    final now = DateTime.now().toIso8601String();
-    
-    final existing = await _database.query(
-      'hs_code_categories',
-      where: 'category_code = ?',
-      whereArgs: [categoryCode],
+  /// جلب قواعد HS Code
+  Future<List<HsCodeFeeRule>> getHsCodeFeeRules(String hsCode) async {
+    final rules = await _database.query(
+      'hs_code_fee_rules',
+      where: 'hs_code = ? AND is_active = 1',
+      whereArgs: [hsCode],
+      orderBy: 'calculation_order ASC',
     );
+    return rules.map((r) => HsCodeFeeRule.fromMap(r)).toList();
+  }
 
-    final data = {
-      'category_code': categoryCode,
-      'category_name': categoryName,
-      'description': description,
-      'default_relative_fees_json': jsonEncode(defaultRelativeFees.map((f) => f.toJson()).toList()),
-      'default_fixed_fees_json': jsonEncode(defaultFixedFees.map((f) => f.toJson()).toList()),
-      'is_active': 1,
-      'created_at': now,
-    };
+  // ============ دوال مساعدة ============
 
-    if (existing.isNotEmpty) {
-      await _database.update('hs_code_categories', data, where: 'category_code = ?', whereArgs: [categoryCode]);
-    } else {
-      await _database.insert('hs_code_categories', {
-        ...data,
-        'id': 'cat-$categoryCode',
-      });
+  Future<ItemFeeResult> _calculateWithDefaultRules(
+    String hsCode, double itemValueUsd, double exchangeRate, double itemValueYer) async {
+    // استخدام الرسوم العامة كاحتياط
+    final generalRules = await _database.query('relative_fees', where: 'is_active = 1', orderBy: 'execution_order ASC');
+    final generalFixed = await _database.query('fixed_fees', where: 'is_active = 1');
+
+    final List<CalculatedFee> percentageFees = [];
+    double currentBase = itemValueYer;
+    double totalPercentage = 0;
+
+    for (final rule in generalRules) {
+      final rate = (rule['rate'] as num).toDouble();
+      final basis = rule['calculation_base'] as String? ?? 'invoice_value';
+      
+      double baseAmount = basis == 'after_duty' || basis == 'after_st' ? currentBase : itemValueYer;
+      final amount = baseAmount * (rate / 100);
+
+      percentageFees.add(CalculatedFee(
+        feeCode: rule['code'] as String,
+        feeName: rule['name'] as String,
+        feeType: 'percentage',
+        rate: rate,
+        fixedAmount: 0,
+        calculatedAmount: amount,
+        calculationBasis: basis,
+        calculationOrder: rule['execution_order'] as int? ?? 99,
+      ));
+
+      currentBase += amount;
+      totalPercentage += amount;
     }
-  }
 
-  /// جلب جميع تصنيفات HS Code
-  Future<List<Map<String, dynamic>>> getHsCodeCategories() async {
-    return await _database.query('hs_code_categories', where: 'is_active = 1', orderBy: 'category_code ASC');
-  }
+    final List<CalculatedFee> fixedFees = [];
+    double totalFixed = 0;
 
-  /// جلب قواعد HS Code المحفوظة
-  Future<List<Map<String, dynamic>>> getHsCodeRules() async {
-    return await _database.query('hs_code_fee_rules', where: 'is_active = 1', orderBy: 'hs_code ASC');
-  }
-
-  // --- دوال مساعدة ---
-
-  List<FeeItem> _parseRelativeFees(String json) {
-    try {
-      final list = jsonDecode(json) as List;
-      return list.map((f) => FeeItem.fromJson(f)).toList();
-    } catch (_) {
-      return [];
+    for (final rule in generalFixed) {
+      final amount = (rule['amount'] as num).toDouble();
+      fixedFees.add(CalculatedFee(
+        feeCode: rule['code'] as String,
+        feeName: rule['name'] as String,
+        feeType: 'fixed',
+        rate: 0,
+        fixedAmount: amount,
+        calculatedAmount: amount,
+        calculationBasis: 'fixed',
+        calculationOrder: 99,
+      ));
+      totalFixed += amount;
     }
+
+    return ItemFeeResult(
+      hsCode: hsCode,
+      itemValueUsd: itemValueUsd,
+      exchangeRate: exchangeRate,
+      itemValueYer: itemValueYer,
+      percentageFees: percentageFees,
+      fixedFees: fixedFees,
+      totalPercentageFees: totalPercentage,
+      totalFixedFees: totalFixed,
+      totalFees: totalPercentage + totalFixed,
+    );
   }
 
-  List<FeeItem> _parseFixedFees(String json) {
-    try {
-      final list = jsonDecode(json) as List;
-      return list.map((f) => FeeItem.fromJson(f)).toList();
-    } catch (_) {
-      return [];
-    }
-  }
-
-  Future<List<FeeItem>> _getDefaultRelativeFees() async {
-    final fees = await _database.query('relative_fees', where: 'is_active = 1', orderBy: 'execution_order ASC');
-    return fees.map((f) => FeeItem(
-      code: f['code'] as String,
-      name: f['name'] as String,
-      type: 'relative',
-      rate: (f['rate'] as num).toDouble(),
-      amount: 0,
-      calculationBase: f['calculation_base'] as String? ?? 'invoice_value',
-    )).toList();
-  }
-
-  Future<List<FeeItem>> _getDefaultFixedFees() async {
-    final fees = await _database.query('fixed_fees', where: 'is_active = 1', orderBy: 'execution_order ASC');
-    return fees.map((f) => FeeItem(
-      code: f['code'] as String,
-      name: f['name'] as String,
-      type: 'fixed',
-      rate: 0,
-      amount: (f['amount'] as num).toDouble(),
-      calculationBase: 'fixed',
-    )).toList();
-  }
-
-  List<FeeItem> _mergeFees(List<FeeItem> existing, List<FeeItem> newFees) {
-    final Map<String, FeeItem> merged = {};
-    
-    for (final fee in existing) {
-      merged[fee.code] = fee;
-    }
-    
-    for (final fee in newFees) {
-      if (merged.containsKey(fee.code)) {
-        merged[fee.code] = FeeItem(
-          code: fee.code,
-          name: fee.name,
-          type: fee.type,
-          rate: fee.rate,
-          amount: merged[fee.code]!.amount + fee.amount,
-          calculationBase: fee.calculationBase,
-        );
-      } else {
-        merged[fee.code] = fee;
+  List<CalculatedFee> _mergePercentageFees(List<ItemFeeResult> items) {
+    final Map<String, CalculatedFee> merged = {};
+    for (final item in items) {
+      for (final fee in item.percentageFees) {
+        if (merged.containsKey(fee.feeCode)) {
+          merged[fee.feeCode] = CalculatedFee(
+            feeCode: fee.feeCode,
+            feeName: fee.feeName,
+            feeType: fee.feeType,
+            rate: fee.rate,
+            fixedAmount: 0,
+            calculatedAmount: merged[fee.feeCode]!.calculatedAmount + fee.calculatedAmount,
+            calculationBasis: fee.calculationBasis,
+            calculationOrder: fee.calculationOrder,
+          );
+        } else {
+          merged[fee.feeCode] = fee;
+        }
       }
     }
-    
+    return merged.values.toList()..sort((a, b) => a.calculationOrder.compareTo(b.calculationOrder));
+  }
+
+  List<CalculatedFee> _mergeFixedFees(List<ItemFeeResult> items) {
+    final Map<String, CalculatedFee> merged = {};
+    for (final item in items) {
+      for (final fee in item.fixedFees) {
+        if (merged.containsKey(fee.feeCode)) {
+          merged[fee.feeCode] = CalculatedFee(
+            feeCode: fee.feeCode,
+            feeName: fee.feeName,
+            feeType: fee.feeType,
+            rate: 0,
+            fixedAmount: fee.fixedAmount,
+            calculatedAmount: merged[fee.feeCode]!.calculatedAmount + fee.calculatedAmount,
+            calculationBasis: fee.calculationBasis,
+            calculationOrder: fee.calculationOrder,
+          );
+        } else {
+          merged[fee.feeCode] = fee;
+        }
+      }
+    }
     return merged.values.toList();
   }
 }
