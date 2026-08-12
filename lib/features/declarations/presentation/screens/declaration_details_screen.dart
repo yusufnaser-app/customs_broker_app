@@ -5,7 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/database/database_helper.dart';
-import '../../../../core/utils/hs_code_fee_engine.dart' as hs;
+import '../../../../core/utils/hs_code_fee_engine.dart';
 import '../../domain/entities/declaration.dart';
 import '../../domain/entities/declaration_item.dart';
 import 'declaration_form_screen.dart';
@@ -26,7 +26,7 @@ class _DeclarationDetailsScreenState extends State<DeclarationDetailsScreen> {
   final DatabaseHelper _dbHelper = DatabaseHelper();
   Declaration? _declaration;
   List<DeclarationItem> _items = [];
-  hs.FeeBreakdown? _feeBreakdown;
+  DeclarationFeeResult? _feeResult;
   bool _isLoading = true;
 
   @override
@@ -37,10 +37,10 @@ class _DeclarationDetailsScreenState extends State<DeclarationDetailsScreen> {
 
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
-    
+
     try {
       final db = await _dbHelper.database;
-      
+
       // تحميل الإقرار
       final declarations = await db.rawQuery('''
         SELECT d.*, c.name as client_name, t.name as trader_name, s.name as supplier_name
@@ -50,7 +50,7 @@ class _DeclarationDetailsScreenState extends State<DeclarationDetailsScreen> {
         LEFT JOIN suppliers s ON d.supplier_id = s.id
         WHERE d.id = ?
       ''', [widget.declarationId]);
-      
+
       if (declarations.isNotEmpty) {
         final declaration = Declaration.fromMap(
           declarations.first,
@@ -58,47 +58,70 @@ class _DeclarationDetailsScreenState extends State<DeclarationDetailsScreen> {
           traderName: declarations.first['trader_name'] as String?,
           supplierName: declarations.first['supplier_name'] as String?,
         );
-        
+
         // تحميل الأصناف
         final itemsResult = await db.query(
           'declaration_items',
           where: 'declaration_id = ?',
           whereArgs: [widget.declarationId],
         );
-        
+
         final items = itemsResult.map((item) => DeclarationItem.fromMap(item)).toList();
-        
-        // حساب الرسوم لكل صنف حسب HS Code الخاص به (فئته أو قاعدته المحفوظة أو الرسوم العامة)
-        final engine = hs.HsCodeFeeEngine(db);
+
+        // حساب الرسوم لكل صنف حسب HS Code
+        final engine = HsCodeFeeEngine(db);
         final itemMaps = items.map((item) => {
           'item_value': item.value,
           'hs_code': item.hsCode,
           'package_type': item.packageType,
         }).toList();
-        final fees = await engine.calculateDeclarationFees(
+
+        final feeResult = await engine.calculateDeclarationFees(
           items: itemMaps,
           exchangeRate: declaration.exchangeRate,
         );
-        
+
         setState(() {
           _declaration = declaration;
           _items = items;
-          _feeBreakdown = fees;
+          _feeResult = feeResult;
           _isLoading = false;
         });
+      } else {
+        setState(() => _isLoading = false);
       }
     } catch (e) {
       setState(() => _isLoading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('خطأ في تحميل البيانات: $e'), backgroundColor: AppColors.error),
+        );
+      }
     }
   }
 
+  Map<String, dynamic> _feeResultToJson(DeclarationFeeResult r) {
+    return {
+      'exchangeRate': r.exchangeRate,
+      'invoiceValueUsd': r.totalInvoiceUsd,
+      'invoiceValueYer': r.totalInvoiceYer,
+      'relativeFees': r.mergedPercentageFees.map((f) => f.toJson()).toList(),
+      'fixedFees': r.mergedFixedFees.map((f) => f.toJson()).toList(),
+      'totalRelativeFees': r.grandTotalPercentage,
+      'totalFixedFees': r.grandTotalFixed,
+      'grandTotal': r.grandTotal,
+    };
+  }
+
   Future<void> _printDeclaration(Declaration declaration) async {
-    if (_feeBreakdown == null) return;
+    if (_feeResult == null) return;
 
     final db = await _dbHelper.database;
 
     final officeRows = await db.query('office_settings', limit: 1);
-    final office = officeRows.isNotEmpty ? officeRows.first : <String, dynamic>{'office_name': 'مكتب التخليص الجمركي'};
+    final office = officeRows.isNotEmpty
+        ? officeRows.first
+        : <String, dynamic>{'office_name': 'مكتب التخليص الجمركي'};
 
     final declRows = await db.query('declarations', where: 'id = ?', whereArgs: [declaration.id]);
     final declarationMap = declRows.isNotEmpty ? declRows.first : <String, dynamic>{};
@@ -110,9 +133,11 @@ class _DeclarationDetailsScreenState extends State<DeclarationDetailsScreen> {
         office: office,
         declaration: declarationMap,
         items: itemMaps,
-        feeBreakdownJson: _feeBreakdown!.toJson(),
+        feeBreakdownJson: _feeResultToJson(_feeResult!),
         representativeName: declarationMap['representative_name'] as String?,
-        approvalDate: declaration.status == 'completed' ? (declarationMap['updated_at'] as String?)?.split('T').first : null,
+        approvalDate: declaration.status == 'completed'
+            ? (declarationMap['updated_at'] as String?)?.split('T').first
+            : null,
       );
 
       await Share.shareXFiles([XFile(file.path)], text: 'إقرار جمركي ${declaration.declarationNumber}');
@@ -130,7 +155,7 @@ class _DeclarationDetailsScreenState extends State<DeclarationDetailsScreen> {
       context: context,
       builder: (context) => _AddItemDialog(dbHelper: _dbHelper),
     );
-    
+
     if (result != null) {
       final db = await _dbHelper.database;
       final now = DateTime.now().toIso8601String();
@@ -156,8 +181,9 @@ class _DeclarationDetailsScreenState extends State<DeclarationDetailsScreen> {
         'created_at': now,
       });
 
-      // تحديث عدد الأصناف وإجمالي الطرود والأوزان بناءً على كل الأصناف المسجلة فعليًا
-      final allItems = await db.query('declaration_items', where: 'declaration_id = ?', whereArgs: [widget.declarationId]);
+      // تحديث مجاميع الإقرار
+      final allItems = await db.query('declaration_items',
+          where: 'declaration_id = ?', whereArgs: [widget.declarationId]);
       int totalPackages = 0;
       double totalGrossWeight = 0;
       double totalNetWeight = 0;
@@ -179,7 +205,7 @@ class _DeclarationDetailsScreenState extends State<DeclarationDetailsScreen> {
         where: 'id = ?',
         whereArgs: [widget.declarationId],
       );
-      
+
       _loadData();
     }
   }
@@ -196,37 +222,38 @@ class _DeclarationDetailsScreenState extends State<DeclarationDetailsScreen> {
         ],
       ),
     );
-    
-    if (confirm == true && _declaration != null && _feeBreakdown != null) {
+
+    if (confirm == true && _declaration != null && _feeResult != null) {
       final db = await _dbHelper.database;
-      final engine = hs.HsCodeFeeEngine(db);
+      final engine = HsCodeFeeEngine(db);
       final now = DateTime.now().toIso8601String();
 
-      // حفظ نسخة تاريخية ثابتة من كشف الرسوم الكامل عند الاعتماد
+      // حفظ نسخة تاريخية
       await db.insert('declaration_snapshots', {
         'id': 'snap-${_declaration!.id}-${DateTime.now().millisecondsSinceEpoch}',
         'declaration_id': _declaration!.id,
-        'exchange_rate': _feeBreakdown!.exchangeRate,
-        'fees_breakdown': jsonEncode(_feeBreakdown!.toJson()),
-        'total_fees': _feeBreakdown!.grandTotal,
+        'exchange_rate': _feeResult!.exchangeRate,
+        'fees_breakdown': jsonEncode(_feeResultToJson(_feeResult!)),
+        'total_fees': _feeResult!.grandTotal,
         'snapshot_date': now,
       });
 
-      // حفظ/تحديث قاعدة رسوم كل صنف حسب HS Code الخاص به لاستخدامها كنموذج لاحقًا
-      for (final item in _items) {
-        if (item.hsCode.isEmpty) continue;
-        final itemBreakdown = await engine.calculateFeesForItem(
-          hsCode: item.hsCode,
-          itemValueUsd: item.value,
-          exchangeRate: _declaration!.exchangeRate,
-          itemType: item.packageType,
-        );
-        await engine.saveHsCodeRule(
-          hsCode: item.hsCode,
-          hsCodeCategory: itemBreakdown.hsCodeCategory ?? '',
-          itemType: item.packageType ?? '',
-          relativeFees: itemBreakdown.relativeFees,
-          fixedFees: itemBreakdown.fixedFees,
+      // حفظ قواعد رسوم لكل HS Code
+      for (final itemResult in _feeResult!.itemResults) {
+        if (itemResult.hsCode.isEmpty) continue;
+        await engine.saveHsCodeFeeRules(
+          hsCode: itemResult.hsCode,
+          percentageRules: itemResult.percentageFees.map((f) => {
+            'code': f.feeCode,
+            'name': f.feeName,
+            'rate': f.rate,
+            'basis': f.calculationBasis,
+          }).toList(),
+          fixedRules: itemResult.fixedFees.map((f) => {
+            'code': f.feeCode,
+            'name': f.feeName,
+            'amount': f.fixedAmount,
+          }).toList(),
         );
       }
 
@@ -236,9 +263,9 @@ class _DeclarationDetailsScreenState extends State<DeclarationDetailsScreen> {
         where: 'id = ?',
         whereArgs: [widget.declarationId],
       );
-      
+
       _loadData();
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('تم اعتماد الإقرار بنجاح'), backgroundColor: AppColors.success),
@@ -255,17 +282,17 @@ class _DeclarationDetailsScreenState extends State<DeclarationDetailsScreen> {
         body: const Center(child: CircularProgressIndicator()),
       );
     }
-    
+
     if (_declaration == null) {
       return Scaffold(
         appBar: AppBar(title: const Text('تفاصيل الإقرار')),
         body: const Center(child: Text('الإقرار غير موجود')),
       );
     }
-    
+
     final declaration = _declaration!;
     final currencyFormatter = NumberFormat('#,##0.00');
-    
+
     return Scaffold(
       appBar: AppBar(
         title: Text('إقرار #${declaration.declarationNumber}'),
@@ -273,7 +300,7 @@ class _DeclarationDetailsScreenState extends State<DeclarationDetailsScreen> {
           IconButton(
             icon: const Icon(Icons.print_rounded),
             tooltip: 'طباعة الإقرار',
-            onPressed: _feeBreakdown != null ? () => _printDeclaration(declaration) : null,
+            onPressed: _feeResult != null ? () => _printDeclaration(declaration) : null,
           ),
           IconButton(
             icon: const Icon(Icons.attach_file_rounded),
@@ -327,28 +354,30 @@ class _DeclarationDetailsScreenState extends State<DeclarationDetailsScreen> {
               ),
             ),
             const SizedBox(height: 20),
-            
+
             // معلومات أساسية
             _buildDetailCard('معلومات الإقرار', [
               _buildDetailRow('رقم الإقرار', declaration.declarationNumber),
               _buildDetailRow('رقم البيان', declaration.statementNumber ?? '-'),
               _buildDetailRow('تاريخ البيان', declaration.statementDate ?? '-'),
               _buildDetailRow('نوع البيان', declaration.statementType ?? '-'),
-              _buildDetailRow('المركز الجمركي', declaration.customsCenter ?? '-'),
+              _buildDetailRow('المركز الجمركي', declaration.customsCenter ?? declaration.customsCenterName ?? '-'),
+              _buildDetailRow('المندوب', declaration.representativeName ?? '-'),
             ]),
             const SizedBox(height: 16),
-            
-            _buildDetailCard('معلومات العميل', [
+
+            _buildDetailCard('معلومات العميل والمستورد', [
               _buildDetailRow('العميل', declaration.clientName ?? '-'),
-              _buildDetailRow('المستورد', declaration.traderName ?? '-'),
+              _buildDetailRow('المستورد / المرسل إليه', declaration.traderName ?? '-'),
               _buildDetailRow('المورد', declaration.supplierName ?? '-'),
             ]),
             const SizedBox(height: 16),
-            
+
             _buildDetailCard('معلومات الشحن والفاتورة', [
               _buildDetailRow('بلد المنشأ', declaration.originCountry ?? '-'),
               _buildDetailRow('بلد التصدير', declaration.exportCountry ?? '-'),
               _buildDetailRow('وسيلة النقل', declaration.transportMethod ?? '-'),
+              _buildDetailRow('اسم السفينة', declaration.vesselName ?? '-'),
               _buildDetailRow('رقم الحاوية', declaration.containerNumber ?? '-'),
               _buildDetailRow('رقم الفاتورة', declaration.invoiceNumber ?? '-'),
               _buildDetailRow('تاريخ الفاتورة', declaration.invoiceDate ?? '-'),
@@ -356,17 +385,17 @@ class _DeclarationDetailsScreenState extends State<DeclarationDetailsScreen> {
               _buildDetailRow('سعر الصرف', '${currencyFormatter.format(declaration.exchangeRate)} ريال'),
             ]),
             const SizedBox(height: 16),
-            
+
             // الأصناف
             _buildItemsSection(),
             const SizedBox(height: 16),
-            
+
             // كشف الرسوم
-            if (_feeBreakdown != null) ...[
+            if (_feeResult != null) ...[
               _buildFeesSection(),
               const SizedBox(height: 24),
             ],
-            
+
             // أزرار الإجراءات
             if (declaration.status == 'draft') ...[
               SizedBox(
@@ -410,7 +439,7 @@ class _DeclarationDetailsScreenState extends State<DeclarationDetailsScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 120,
+            width: 130,
             child: Text('$label:', style: GoogleFonts.cairo(fontSize: 14, color: AppColors.textSecondary)),
           ),
           Expanded(
@@ -431,7 +460,8 @@ class _DeclarationDetailsScreenState extends State<DeclarationDetailsScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('الأصناف (${_items.length})', style: GoogleFonts.cairo(fontSize: 17, fontWeight: FontWeight.bold, color: AppColors.primary)),
+                Text('الأصناف (${_items.length})',
+                    style: GoogleFonts.cairo(fontSize: 17, fontWeight: FontWeight.bold, color: AppColors.primary)),
                 if (_declaration?.status == 'draft')
                   TextButton.icon(
                     onPressed: _addItem,
@@ -468,70 +498,138 @@ class _DeclarationDetailsScreenState extends State<DeclarationDetailsScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(item.itemName, style: GoogleFonts.cairo(fontWeight: FontWeight.w600)),
-              Text(item.hsCode, style: GoogleFonts.cairo(fontSize: 12, color: AppColors.accent)),
+              Expanded(child: Text(item.itemName, style: GoogleFonts.cairo(fontWeight: FontWeight.w600))),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: AppColors.accent.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(item.hsCode, style: GoogleFonts.cairo(fontSize: 11, color: AppColors.accent)),
+              ),
             ],
           ),
-          const SizedBox(height: 6),
-          Text('الكمية: ${item.quantity} ${item.unit} | القيمة: ${NumberFormat('#,##0.00').format(item.value)} \$',
-              style: GoogleFonts.cairo(fontSize: 13, color: AppColors.textSecondary)),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 16,
+            runSpacing: 4,
+            children: [
+              _buildItemDetail('الكمية', '${item.quantity} ${item.unit}'),
+              _buildItemDetail('القيمة', '${NumberFormat('#,##0.00').format(item.value)} \$'),
+              if (item.packageType != null)
+                _buildItemDetail('نوع الطرد', item.packageType!),
+              if (item.packagesCount != null && item.packagesCount! > 0)
+                _buildItemDetail('عدد الطرود', '${item.packagesCount}'),
+              if (item.grossWeight != null && item.grossWeight! > 0)
+                _buildItemDetail('الوزن القائم', '${item.grossWeight} كجم'),
+              if (item.netWeight != null && item.netWeight! > 0)
+                _buildItemDetail('الوزن الصافي', '${item.netWeight} كجم'),
+              if (item.localValue != null && item.localValue! > 0)
+                _buildItemDetail('قاعدة الاحتساب', '${NumberFormat('#,##0').format(item.localValue)} ر.ي'),
+            ],
+          ),
         ],
       ),
     );
   }
 
+  Widget _buildItemDetail(String label, String value) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text('$label: ', style: GoogleFonts.cairo(fontSize: 12, color: AppColors.textSecondary)),
+        Text(value, style: GoogleFonts.cairo(fontSize: 12, fontWeight: FontWeight.w500)),
+      ],
+    );
+  }
+
   Widget _buildFeesSection() {
-    final fees = _feeBreakdown!;
+    final fees = _feeResult!;
     final currencyFormatter = NumberFormat('#,##0');
-    
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('كشف الرسوم', style: GoogleFonts.cairo(fontSize: 17, fontWeight: FontWeight.bold, color: AppColors.primary)),
+            Text('كشف الرسوم الجمركية',
+                style: GoogleFonts.cairo(fontSize: 17, fontWeight: FontWeight.bold, color: AppColors.primary)),
             const Divider(),
-            
-            _buildFeesRow('قيمة الفاتورة (ريال)', '${currencyFormatter.format(fees.invoiceValueYer)} ر.ي'),
-            const SizedBox(height: 8),
-            
-            Text('الرسوم النسبية:', style: GoogleFonts.cairo(fontWeight: FontWeight.w600)),
-            ...fees.relativeFees.map((fee) => _buildFeesRow(
-              '  ${fee.name} (${fee.rate}%)',
-              '${currencyFormatter.format(fee.amount)} ر.ي',
-            )),
-            const SizedBox(height: 8),
-            
-            Text('الرسوم الثابتة:', style: GoogleFonts.cairo(fontWeight: FontWeight.w600)),
-            ...fees.fixedFees.map((fee) => _buildFeesRow(
-              '  ${fee.name}',
-              '${currencyFormatter.format(fee.amount)} ر.ي',
-            )),
-            const Divider(),
-            
-            _buildFeesRow('إجمالي الرسوم', '${currencyFormatter.format(fees.grandTotal)} ر.ي',
-                bold: true, color: AppColors.primary),
+
+            _buildFeesRow('قيمة الفاتورة (ريال)', '${currencyFormatter.format(fees.totalInvoiceYer)} ر.ي'),
+            const SizedBox(height: 10),
+
+            // عرض رسوم كل صنف
+            ...fees.itemResults.map((itemResult) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withOpacity(0.05),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        'HS Code: ${itemResult.hsCode} | القيمة: ${currencyFormatter.format(itemResult.itemValueYer)} ر.ي',
+                        style: GoogleFonts.cairo(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.primary),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    ...itemResult.percentageFees.map((fee) => _buildFeesRow(
+                      '  ${fee.feeName} (${fee.rate}%)',
+                      '${currencyFormatter.format(fee.calculatedAmount)} ر.ي',
+                    )),
+                    ...itemResult.fixedFees.map((fee) => _buildFeesRow(
+                      '  ${fee.feeName}',
+                      '${currencyFormatter.format(fee.calculatedAmount)} ر.ي',
+                    )),
+                    _buildFeesRow('  إجمالي الصنف', '${currencyFormatter.format(itemResult.totalFees)} ر.ي', bold: true),
+                  ],
+                ),
+              );
+            }),
+
+            const Divider(thickness: 2),
+            const SizedBox(height: 4),
+
+            _buildFeesRow('إجمالي الرسوم النسبية', '${currencyFormatter.format(fees.grandTotalPercentage)} ر.ي', bold: true),
+            _buildFeesRow('إجمالي الرسوم الثابتة', '${currencyFormatter.format(fees.grandTotalFixed)} ر.ي', bold: true),
+            _buildFeesRow('الإجمالي الكلي', '${currencyFormatter.format(fees.grandTotal)} ر.ي',
+                bold: true, color: AppColors.primary, large: true),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildFeesRow(String label, String value, {bool bold = false, Color? color}) {
+  Widget _buildFeesRow(String label, String value, {bool bold = false, Color? color, bool large = false}) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: GoogleFonts.cairo(fontSize: 14, fontWeight: bold ? FontWeight.bold : FontWeight.normal)),
-          Text(value, style: GoogleFonts.cairo(fontSize: 14, fontWeight: bold ? FontWeight.bold : FontWeight.normal, color: color)),
+          Expanded(
+            child: Text(label,
+                style: GoogleFonts.cairo(
+                    fontSize: large ? 16 : 13,
+                    fontWeight: bold ? FontWeight.bold : FontWeight.normal)),
+          ),
+          Text(value,
+              style: GoogleFonts.cairo(
+                  fontSize: large ? 16 : 13,
+                  fontWeight: bold ? FontWeight.bold : FontWeight.normal,
+                  color: color)),
         ],
       ),
     );
   }
 }
 
+// ============ حوار إضافة صنف ============
 class _AddItemDialog extends StatefulWidget {
   final DatabaseHelper dbHelper;
 
@@ -556,7 +654,6 @@ class _AddItemDialogState extends State<_AddItemDialog> {
   String _selectedOriginCountry = 'اليمن';
   String _selectedPackageType = 'كرتون';
   List<Map<String, dynamic>> _tariffSearchResults = [];
-  bool _isSearching = false;
 
   final List<String> _units = ['قطعة', 'كيلوجرام', 'طن', 'متر', 'لتر', 'كرتون', 'صندوق', 'بالة'];
   final List<String> _countries = ['اليمن', 'السعودية', 'الإمارات', 'الصين', 'الهند', 'تركيا'];
@@ -567,21 +664,28 @@ class _AddItemDialogState extends State<_AddItemDialog> {
       setState(() => _tariffSearchResults = []);
       return;
     }
-    
-    setState(() => _isSearching = true);
-    
+
     final db = await widget.dbHelper.database;
-    final results = await db.query(
-      'tariff',
-      where: 'hs_code LIKE ? OR item_name LIKE ?',
+
+    // البحث في جدول التعرفة الجديد أولاً
+    var results = await db.query(
+      'tariff_items',
+      where: 'code LIKE ? OR name LIKE ?',
       whereArgs: ['%$query%', '%$query%'],
       limit: 10,
     );
-    
-    setState(() {
-      _tariffSearchResults = results;
-      _isSearching = false;
-    });
+
+    // إذا لم توجد نتائج، ابحث في الجدول القديم
+    if (results.isEmpty) {
+      results = await db.query(
+        'tariff',
+        where: 'hs_code LIKE ? OR item_name LIKE ?',
+        whereArgs: ['%$query%', '%$query%'],
+        limit: 10,
+      );
+    }
+
+    setState(() => _tariffSearchResults = results);
   }
 
   @override
@@ -608,16 +712,15 @@ class _AddItemDialogState extends State<_AddItemDialog> {
                     itemCount: _tariffSearchResults.length,
                     itemBuilder: (context, index) {
                       final item = _tariffSearchResults[index];
+                      final name = item['name'] as String? ?? item['item_name'] as String? ?? '';
+                      final code = item['code'] as String? ?? item['hs_code'] as String? ?? '';
                       return ListTile(
                         dense: true,
-                        title: Text(item['item_name'] as String, style: const TextStyle(fontSize: 14)),
-                        subtitle: Text(item['hs_code'] as String, style: const TextStyle(fontSize: 12)),
+                        title: Text(name, style: const TextStyle(fontSize: 14)),
+                        subtitle: Text(code, style: const TextStyle(fontSize: 12)),
                         onTap: () {
-                          _itemNameController.text = item['item_name'] as String;
-                          _hsCodeController.text = item['hs_code'] as String;
-                          if (item['unit'] != null) {
-                            _selectedUnit = item['unit'] as String;
-                          }
+                          _itemNameController.text = name;
+                          _hsCodeController.text = code;
                           setState(() => _tariffSearchResults = []);
                         },
                       );
@@ -700,25 +803,11 @@ class _AddItemDialogState extends State<_AddItemDialog> {
                 ],
               ),
               const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      controller: _weightController,
-                      decoration: const InputDecoration(labelText: 'الوزن الإجمالي (كجم)'),
-                      keyboardType: TextInputType.number,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextFormField(
-                      controller: _valueController,
-                      decoration: const InputDecoration(labelText: 'القيمة (\$) *'),
-                      keyboardType: TextInputType.number,
-                      validator: (v) => v?.isEmpty == true ? 'مطلوب' : null,
-                    ),
-                  ),
-                ],
+              TextFormField(
+                controller: _valueController,
+                decoration: const InputDecoration(labelText: 'القيمة (\$) *'),
+                keyboardType: TextInputType.number,
+                validator: (v) => v?.isEmpty == true ? 'مطلوب' : null,
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
@@ -732,10 +821,7 @@ class _AddItemDialogState extends State<_AddItemDialog> {
         ),
       ),
       actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('إلغاء'),
-        ),
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('إلغاء')),
         ElevatedButton(
           onPressed: () {
             if (_formKey.currentState!.validate()) {
