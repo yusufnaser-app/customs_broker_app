@@ -13,6 +13,7 @@ class DeclarationItem {
   final int? packagesCount;
   final double? grossWeight;
   final double? netWeight;
+  final double? localValue;
   final String createdAt;
 
   const DeclarationItem({
@@ -30,6 +31,7 @@ class DeclarationItem {
     this.packagesCount,
     this.grossWeight,
     this.netWeight,
+    this.localValue,
     required this.createdAt,
   });
 
@@ -49,6 +51,7 @@ class DeclarationItem {
       'packages_count': packagesCount,
       'gross_weight': grossWeight,
       'net_weight': netWeight,
+      'local_value': localValue,
       'created_at': createdAt,
     };
   }
@@ -69,6 +72,7 @@ class DeclarationItem {
       packagesCount: map['packages_count'] as int?,
       grossWeight: (map['gross_weight'] as num?)?.toDouble(),
       netWeight: (map['net_weight'] as num?)?.toDouble(),
+      localValue: (map['local_value'] as num?)?.toDouble(),
       createdAt: map['created_at'] ?? '',
     );
   }
